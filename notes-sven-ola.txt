@@ -1,0 +1,41 @@
+Done under the impression that armbian kernel configs may not always
+stable (e.g. last month with now reverted commit 2a382) more control
+over auto-deployed update packages seems advisable. For this reason:
+
+- Forked 2024-Aug-2, added sven-ola branch
+- git remote add upstream git@github.com:armbian/build.git
+
+Helpful links:
+--------------
+
+https://thoughtbot.com/blog/keeping-a-github-fork-updated
+https://github.com/nextcloud/all-in-one
+
+Start a build, e.g. for orange pi zero 3:
+-----------------------------------------
+
+./compile.sh CPUTHREADS=$(nproc) opiz3
+
+./compile.sh CPUTHREADS=$(nproc) BOARD=orangepizero3 BRANCH=current RELEASE=bookworm \
+  KERNEL_CONFIGURE=yes BUILD_DESKTOP=no BUILD_MINIMAL=yes PREFER_DOCKER=yes KERNEL_GIT=shallow \
+  SKIP_ARMBIAN_REPO=yes
+
+To change kernel cfgs with "make menuconfig" manually:
+------------------------------------------------------
+
+docker run --volume=/usr/src/armbian-build:/armbian --interactive --tty armbian.local.only/armbian-build:initial bash
+cd cache/sources/linux-kernel-worktree/6.12__sunxi64__arm64
+cp ../../../../config/kernel/linux-sunxi64-current.config .config
+cat >> .config << EOF
+CONFIG_NF_CONNTRACK=y
+CONFIG_NF_TABLES=y
+CONFIG_IP_NF_IPTABLES=y
+CONFIG_IP_NF_FILTER=y
+CONFIG_IP_NF_SECURITY=y
+CONFIG_NETFILTER_XT_MATCH_IPVS=m
+CONFIG_BRIDGE=y
+CONFIG_BPF_JIT=y
+CONFIG_DEBUG_INFO_DWARF5=y
+CONFIG_DEBUG_INFO_BTF=y
+EOF
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- menuconfig
