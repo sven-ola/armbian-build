@@ -4,11 +4,11 @@ over auto-deployed update packages seems advisable. For this reason:
 
 - Forked 2024-Aug-2, added sven-ola branch
 - git remote add upstream git@github.com:armbian/build.git
+- git fetch upstream && git merge upstream/main && git push
 
 Helpful links:
 --------------
 
-https://thoughtbot.com/blog/keeping-a-github-fork-updated
 https://github.com/nextcloud/all-in-one
 
 Start a build, e.g. for orange pi zero 3:
