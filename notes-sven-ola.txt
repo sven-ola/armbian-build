@@ -39,3 +39,9 @@ CONFIG_DEBUG_INFO_DWARF5=y
 CONFIG_DEBUG_INFO_BTF=y
 EOF
 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- menuconfig
+
+To build a kernel / kernel module
+---------------------------------
+make -j$(nproc) ARCH=arm64 LOCALVERSION=-current-sunxi64 CROSS_COMPILE=aarch64-linux-gnu- \
+  KCFLAGS=-fdiagnostics-color=always -Wno-error=misleading-indentation KGZIP=pigz KBZIP2=pbzip2 \
+  INSTALL_MOD_STRIP=1 all Image install modules_install headers_install dtbs_install
