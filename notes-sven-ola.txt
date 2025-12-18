@@ -46,3 +46,14 @@ To build a kernel / kernel module
 make -j$(nproc) ARCH=arm64 LOCALVERSION=-current-sunxi64 CROSS_COMPILE=aarch64-linux-gnu- \
   KCFLAGS=-fdiagnostics-color=always -Wno-error=misleading-indentation KGZIP=pigz KBZIP2=pbzip2 \
   INSTALL_MOD_STRIP=1 all Image install modules_install headers_install dtbs_install
+
+RISC V
+------
+- Banana Pi F3, runs on SpacemiT K1 8-core X60 RISV-V@1.5?
+  (2 TOPS NPU, 2x1 Gbit, M.2@m, mPCIe, eMMC@soldered, SD/TF)
+- Orange Pi RV, runs on StarFive JH 7110 4-core RISC-V@1.5
+  (1x1 Gbit, M.2@m, SD/TF, SPI-flash)
+- Orange Pi RV2, runs on Ky X1, 8-core RISC-V@1.5, variant of SpacemiT K1?
+  (2 TOPS NPU, 2x1 Gbit, M.2@m2280, M.2@m2230, SD/TF, eMMC@socket, SPI-flash)
+- Muse Pi Pro runs on overclocked SpacemiT K1 8-core X60 RISC-V@1.8
+  (2 TOPS NPU, 1x1 Gbit, M.2@m, mPCIe, eMMC@soldered, SPI-flash)
