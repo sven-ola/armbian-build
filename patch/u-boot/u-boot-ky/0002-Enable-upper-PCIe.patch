@@ -1,0 +1,30 @@
+From 857c775cce9039008fa8fa0cf9a511c1a66b84d3 Mon Sep 17 00:00:00 2001
+From: Sven-Ola Tuecke <sven-ola@gmx.de>
+Date: Fri, 19 Dec 2025 22:44:03 +0100
+Subject: [PATCH] Enable upper PCIe
+
+Signed-off-by: Sven-Ola Tuecke <sven-ola@gmx.de>
+---
+ arch/riscv/dts/x1_orangepi-rv2.dts | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/riscv/dts/x1_orangepi-rv2.dts b/arch/riscv/dts/x1_orangepi-rv2.dts
+index 4269b9d8709..08ee30943ba 100644
+--- a/arch/riscv/dts/x1_orangepi-rv2.dts
++++ b/arch/riscv/dts/x1_orangepi-rv2.dts
+@@ -281,6 +281,12 @@
+ 	status = "okay";
+ };
+ 
++&pcie2_rc {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_pcie2_4>;
++	status = "okay";
++};
++
+ &qspi {
+ 	status = "okay";
+ 	pinctrl-names = "default";
+-- 
+2.34.1
+

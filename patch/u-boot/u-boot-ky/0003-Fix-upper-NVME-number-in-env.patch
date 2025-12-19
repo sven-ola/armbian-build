@@ -1,0 +1,26 @@
+From ba1a7dc11c1790a6107e2740d8d460a4274c69a3 Mon Sep 17 00:00:00 2001
+From: Sven-Ola Tuecke <sven-ola@gmx.de>
+Date: Fri, 19 Dec 2025 22:59:45 +0100
+Subject: [PATCH] Fix upper NVME number in env
+
+Signed-off-by: Sven-Ola Tuecke <sven-ola@gmx.de>
+---
+ include/configs/x1.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/configs/x1.h b/include/configs/x1.h
+index 1dd874b0827..7f677d129a9 100644
+--- a/include/configs/x1.h
++++ b/include/configs/x1.h
+@@ -161,7 +161,7 @@ struct boot_storage_op
+ #if (CONFIG_IS_ENABLED(CMD_PCI) && CONFIG_IS_ENABLED(CMD_NVME))
+         #define BOOT_TARGET_NVME(func) \
+ 		func(NVME, nvme, 0) \
+-		func(NVME, nvme, na)
++		func(NVME, nvme, 1)
+ #else
+         #define BOOT_TARGET_NVME(func)
+ #endif
+-- 
+2.34.1
+
