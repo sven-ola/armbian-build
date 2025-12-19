@@ -10,6 +10,7 @@ Helpful links:
 --------------
 
 https://github.com/nextcloud/all-in-one
+https://docs.armbian.com/Developer-Guide_Build-Preparation/
 
 Start a build, e.g. for orange pi zero 3:
 -----------------------------------------
@@ -18,7 +19,9 @@ Start a build, e.g. for orange pi zero 3:
 
 ./compile.sh CPUTHREADS=$(nproc) BOARD=orangepizero3 BRANCH=current RELEASE=trixie \
   KERNEL_CONFIGURE=yes BUILD_DESKTOP=no BUILD_MINIMAL=yes PREFER_DOCKER=yes KERNEL_GIT=shallow \
-  SKIP_ARMBIAN_REPO=yes
+  SKIP_ARMBIAN_REPO=yes ${cmd}
+
+(default ${cmd} is "build", see lib/functions/cli/commands.sh for other commands)
 
 To change kernel cfgs with "make menuconfig" manually:
 ------------------------------------------------------
