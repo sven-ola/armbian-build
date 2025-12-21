@@ -2,9 +2,9 @@
 BOARD_NAME="Orange Pi RV2"
 BOARDFAMILY="ky"
 BOARD_MAINTAINER="sven-ola"
-KERNEL_TARGET="current,edge"
-BOOT_FDT_FILE="ky/x1-orangepi-rv2.dtb"
+KERNEL_TARGET="current"
+BOOT_FDT_FILE="ky/x1_orangepi-rv2.dtb"
 BOOTDELAY=1
-SRC_EXTLINUX="yes"
+FORCE_BOOTSCRIPT_UPDATE="yes"
 SRC_CMDLINE="earlycon=sbi console=tty1 console=ttyS0,115200 loglevel=1"
 PACKAGE_LIST_BOARD="rfkill bluetooth bluez bluez-tools"
