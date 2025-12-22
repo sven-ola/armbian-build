@@ -34,8 +34,8 @@ Main() {
 			;;
 		trixie)
 			cat > ${SDCARD}/etc/apt/sources.list.d/privat-in.list <<- EOF
-				deb https://privat-in.de/repo bookworm main
-				deb-src https://privat-in.de/repo bookworm main
+				deb https://privat-in.de/repo trixie main
+				deb-src https://privat-in.de/repo trixie main
 			EOF
 			cat > ${SDCARD}/etc/apt/trusted.gpg.d/privat-in.asc <<- EOF
 				-----BEGIN PGP PUBLIC KEY BLOCK-----
