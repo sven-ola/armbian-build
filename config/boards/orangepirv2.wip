@@ -28,8 +28,6 @@ function post_family_tweaks__orangepirv2_enable_bluetooth_service() {
 function post_family_tweaks_bsp__orangepirv2_bt() {
 	# Build custom Bluetooth firmware hacking tool
 	if [ -f "$SRC/packages/bsp/$BOARD/brcm_patchram_plus.c" ];then
-		set -x
 		run_host_command_logged env PATH="${toolchain}:${PATH}" "${UBOOT_COMPILER}gcc" "$SRC/packages/bsp/$BOARD/brcm_patchram_plus.c" -Wno-implicit-function-declaration -s -o "$destination/usr/bin/brcm_patchram_plus" || exit_with_error "Unable to compile brcm_patchram_plus.c"
-		set +x
 	fi
 }
