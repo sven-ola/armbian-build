@@ -117,7 +117,7 @@ function install_distribution_agnostic() {
 	# remove Ubuntu's legal text
 	[[ -f "${SDCARD}"/etc/legal ]] && rm "${SDCARD}"/etc/legal
 
-	# Prevent loading paralel printer port drivers which we don't need here.
+	# Prevent loading parallel printer port drivers which we don't need here.
 	# Suppress boot error if kernel modules are absent
 	if [[ -f "${SDCARD}"/etc/modules-load.d/cups-filters.conf ]]; then
 		sed "s/^lp/#lp/" -i "${SDCARD}"/etc/modules-load.d/cups-filters.conf
