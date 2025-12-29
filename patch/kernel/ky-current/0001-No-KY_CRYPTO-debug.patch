@@ -1,0 +1,21 @@
+diff --git a/drivers/crypto/ky/Kconfig b/drivers/crypto/ky/Kconfig
+index 09cf4be4ab..ca6269ce6a 100644
+--- a/drivers/crypto/ky/Kconfig
++++ b/drivers/crypto/ky/Kconfig
+@@ -15,14 +15,14 @@ config KY_REE_AES
+           Support AES using KY REE Crypto Engine.
+ 
+ config KY_CRYPTO_DEBUG
+-	tristate "Enable KY REE Crytpo Engine Debug Interface"
++	bool "Enable KY REE Crytpo Engine Debug Interface"
+         depends on KY_REE_ENGINE
+         default n
+         help
+ 	  Enable ky crypto engine debug interface in userspace
+ 
+ config KY_CRYPTO_SELF_TEST
+-	tristate "Enable KY REE Crytpo Engine Selftest"
++	bool "Enable KY REE Crytpo Engine Selftest"
+ 	depends on KY_REE_ENGINE
+ 	default n
+ 	help

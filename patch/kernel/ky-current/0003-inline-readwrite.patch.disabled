@@ -1,0 +1,824 @@
+diff --git a/drivers/crypto/ky/ky_ce_engine.c b/drivers/crypto/ky/ky_ce_engine.c
+index de8eb41618..278362c4d1 100644
+--- a/drivers/crypto/ky/ky_ce_engine.c
++++ b/drivers/crypto/ky/ky_ce_engine.c
+@@ -45,6 +45,7 @@ uint64_t dma_addr_in, dma_addr_out;
+ static struct regmap *ciu_base;
+ static struct engine_info engine[ENGINE_MAX];
+ 
++#if 0
+ static void dma_write32(int index, size_t offset, uint32_t value)
+ {
+ 	tcm_override_writel(value, (void*)(engine[index].engine_base + CE_DMA_REG_OFFSET + offset));
+@@ -85,6 +86,13 @@ static uint32_t crypto_read32(int index, size_t offset)
+ {
+ 	return tcm_override_readl((void*)(engine[index].engine_base + CE_CRYPTO_REG_OFFSET + offset));
+ }
++#else
++#define DMA_REG(r)    (void*)(engine[index].engine_base + CE_DMA_REG_OFFSET + r)
++#define BIU_REG(r)    (void*)(engine[index].engine_base + CE_BIU_REG_OFFSET + r)
++#define ADEC_REG(r)   (void*)(engine[index].engine_base + CE_ADEC_REG_OFFSET + r)
++#define ABUS_REG(r)   (void*)(engine[index].engine_base + CE_ABUS_REG_OFFSET + r)
++#define CRYPTO_REG(r) (void*)(engine[index].engine_base + CE_CRYPTO_REG_OFFSET + r)
++#endif
+ 
+ /* just port from syscon_regmap_lookup_by_compatible */
+ struct regmap *ky_syscon_regmap_lookup_by_compatible(const char *s)
+@@ -128,6 +136,7 @@ void dump_data(const unsigned char *tag, const unsigned char *str, unsigned int
+ 
+ static void engine_irq_enable(int index)
+ {
++#if 0
+ 	uint32_t val;
+ 
+ 	/* clear aes INT */
+@@ -145,24 +154,69 @@ static void engine_irq_enable(int index)
+ 	val = dma_read32(index, CE_DMA_IN_INT_MASK);
+ 	val &=~DMA_INTERRUPT_MASK;
+ 	dma_write32(index, CE_DMA_IN_INT_MASK, val);
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	writel(readl(
++		CRYPTO_REG(CE_CRYPTO_AES_INTRPT_SRC_REG)),
++		CRYPTO_REG(CE_CRYPTO_AES_INTRPT_SRC_REG));
++	writel(AES_INTERRUPT_MASK | readl(
++		CRYPTO_REG(CE_CRYPTO_AES_INTRPT_SRC_EN_REG)),
++		CRYPTO_REG(CE_CRYPTO_AES_INTRPT_SRC_EN_REG));
++	writel(~DMA_INTERRUPT_MASK & readl(
++		DMA_REG(CE_DMA_OUT_INT_MASK)),
++		DMA_REG(CE_DMA_OUT_INT_MASK));
++	writel(~DMA_INTERRUPT_MASK & readl(
++		DMA_REG(CE_DMA_IN_INT_MASK)),
++		DMA_REG(CE_DMA_IN_INT_MASK));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ }
+ static void enable_biu_mask(int index)
+ {
++#if 0
+ 	uint32_t val;
+ 	val = biu_read32(index, SP_INTERRUPT_MASK);
+ 	val &=~BIU_MASK;
+ 	biu_write32(index, SP_INTERRUPT_MASK, val);
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	writel(~BIU_MASK & readl(
++		BIU_REG(SP_INTERRUPT_MASK)),
++		BIU_REG(SP_INTERRUPT_MASK));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ }
+ static void enable_adec_mask(int index)
+ {
++#if 0
+ 	uint32_t val;
+ 	val = adec_read32(index, CE_ADEC_INT_MSK);
+ 	val &=~ADEC_MASK;
+ 	adec_write32(index, CE_ADEC_INT_MSK, val);
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	writel(~ADEC_MASK & readl(
++		ADEC_REG(CE_ADEC_INT_MSK)),
++		ADEC_REG(CE_ADEC_INT_MSK));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ }
+ 
+ static void dma_output_start(int index)
+ {
++#if 0
+ 	uint32_t val;
+ 
+ 	val = dma_read32(index, CE_DMA_OUT_INT);
+@@ -173,10 +227,26 @@ static void dma_output_start(int index)
+ 	dma_write32(index, CE_DMA_OUT_CTRL, val);
+ 
+ 	return;
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	writel(readl(
++		DMA_REG(CE_DMA_OUT_INT)),
++		DMA_REG(CE_DMA_OUT_INT));
++
++	writel(0x1 | readl(
++		DMA_REG(CE_DMA_OUT_CTRL)),
++		DMA_REG(CE_DMA_OUT_CTRL));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ }
+ 
+ static void dma_output_stop(int index)
+ {
++#if 0
+ 	uint32_t val;
+ 
+ 	val = dma_read32(index, CE_DMA_OUT_CTRL);
+@@ -184,12 +254,24 @@ static void dma_output_stop(int index)
+ 	dma_write32(index, CE_DMA_OUT_CTRL, val);
+ 
+ 	return;
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	writel(~0x1 & readl(
++		DMA_REG(CE_DMA_OUT_CTRL)),
++		DMA_REG(CE_DMA_OUT_CTRL));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ }
+ 
+ static int dma_input_config(int index, int rid_ext, int rid)
+ {
+ 	uint32_t val;
+ 
++#if 0
+ 	val = dma_read32(index, CE_DMA_IN_CTRL);
+ 	val &= 0x0f0f0000;
+ 	val |= (0x7 << 28) |	/* dis error check */
+@@ -202,12 +284,32 @@ static int dma_input_config(int index, int rid_ext, int rid)
+ 	    ((rid & 0xF) << 4);
+ 
+ 	dma_write32(index, CE_DMA_IN_CTRL, val);
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	val = readl(DMA_REG(CE_DMA_IN_CTRL));
++	val &= 0x0f0f0000;
++	val |= (0x7 << 28) |	/* dis error check */
++	    ((rid_ext & 0xF) << 20) |	/* rid ext */
++	    (0x1 << 18) |	/* dis out-of-order */
++	    (0x1 << 17) |	/* data 64 Byte aligned */
++	    (0x1 << 15) |	/* FIFO bus size 64bit */
++	    (0x1 << 13) |	/* burst type: Inc */
++	    (0x8 << 8) |	/* burst len */
++	    ((rid & 0xF) << 4);
++	writel(val, DMA_REG(CE_DMA_IN_CTRL));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+ 	return 0;
+ }
+ 
+ static int dma_input_address(int index, uint32_t src_addr, uint32_t src_size, bool chained)
+ {
++#if 0
+ 	if (chained == true) {
+ 		dma_write32(index, CE_DMA_IN_NX_LL_ADR, src_addr);
+ 		dma_write32(index, CE_DMA_IN_SRC_ADR, 0x0);
+@@ -217,12 +319,30 @@ static int dma_input_address(int index, uint32_t src_addr, uint32_t src_size, bo
+ 		dma_write32(index, CE_DMA_IN_SRC_ADR, src_addr);
+ 		dma_write32(index, CE_DMA_IN_XFER_CNTR, src_size);
+ 	}
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	if (chained == true) {
++		writel(src_addr, DMA_REG(CE_DMA_IN_NX_LL_ADR));
++		writel(0x0,      DMA_REG(CE_DMA_IN_SRC_ADR));
++		writel(0x0,      DMA_REG(CE_DMA_IN_XFER_CNTR));
++	} else {
++		writel(0x0,      DMA_REG(CE_DMA_IN_NX_LL_ADR));
++		writel(src_addr, DMA_REG(CE_DMA_IN_SRC_ADR));
++		writel(src_size, DMA_REG(CE_DMA_IN_XFER_CNTR));
++	}
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+ 	return 0;
+ }
+ 
+ static void dma_input_start(int index)
+ {
++#if 0
+ 	uint32_t val;
+ 
+ 	val = dma_read32(index, CE_DMA_IN_INT);
+@@ -233,10 +353,26 @@ static void dma_input_start(int index)
+ 	dma_write32(index, CE_DMA_IN_CTRL, val);
+ 
+ 	return;
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	writel(readl(
++		DMA_REG(CE_DMA_IN_INT)),
++		DMA_REG(CE_DMA_IN_INT));
++
++	writel(0x1 | readl(
++		DMA_REG(CE_DMA_IN_CTRL)),
++		DMA_REG(CE_DMA_IN_CTRL));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ }
+ 
+ static void dma_input_stop(int index)
+ {
++#if 0
+ 	uint32_t val;
+ 
+ 	val = dma_read32(index, CE_DMA_IN_CTRL);
+@@ -244,6 +380,17 @@ static void dma_input_stop(int index)
+ 	dma_write32(index, CE_DMA_IN_CTRL, val);
+ 
+ 	return;
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	writel(~0x1 & readl(
++		DMA_REG(CE_DMA_IN_CTRL)),
++		DMA_REG(CE_DMA_IN_CTRL));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ }
+ 
+ 
+@@ -269,6 +416,7 @@ static int dma_output_config(int index, int wid_ext, int wid)
+ {
+ 	uint32_t val;
+ 
++#if 0
+ 	val = dma_read32(index, CE_DMA_OUT_CTRL);
+ 	val &= 0x0f0f0000;
+ 	val |= (0x7 << 28) |	/* dis error check */
+@@ -281,12 +429,32 @@ static int dma_output_config(int index, int wid_ext, int wid)
+ 	    ((wid & 0xF) << 4);
+ 
+ 	dma_write32(index, CE_DMA_OUT_CTRL, val);
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	val = readl(DMA_REG(CE_DMA_OUT_CTRL));
++	val &= 0x0f0f0000;
++	val |= (0x7 << 28) |	/* dis error check */
++	    ((wid_ext & 0xF) << 20) |	/* rid ext */
++	    (0x1 << 18) |	/* dis out-of-order */
++	    (0x1 << 17) |	/* data 64 Byte aligned */
++	    (0x1 << 15) |	/* FIFO bus size 64bit */
++	    (0x1 << 13) |	/* burst type: Inc */
++	    (0x8 << 8) |	/* burst len */
++	    ((wid & 0xF) << 4);
++	writel(val, DMA_REG(CE_DMA_OUT_CTRL));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+ 	return 0;
+ }
+ 
+ static int dma_output_address(int index, uint32_t dst_addr, uint32_t dst_size, bool chained)
+ {
++#if 0
+ 	if (chained == true) {
+ 		dma_write32(index, CE_DMA_OUT_NX_LL_ADR, dst_addr);
+ 		dma_write32(index, CE_DMA_OUT_DEST_ADR, 0x0);
+@@ -296,27 +464,55 @@ static int dma_output_address(int index, uint32_t dst_addr, uint32_t dst_size, b
+ 		dma_write32(index, CE_DMA_OUT_DEST_ADR, dst_addr);
+ 		dma_write32(index, CE_DMA_OUT_XFER_CNTR, dst_size);
+ 	}
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	if (chained == true) {
++		writel(dst_addr, DMA_REG(CE_DMA_OUT_NX_LL_ADR));
++		writel(0x0,      DMA_REG(CE_DMA_OUT_DEST_ADR));
++		writel(0x0,      DMA_REG(CE_DMA_OUT_XFER_CNTR));
++	} else {
++		writel(0x0,      DMA_REG(CE_DMA_OUT_NX_LL_ADR));
++		writel(dst_addr, DMA_REG(CE_DMA_OUT_DEST_ADR));
++		writel(dst_size, DMA_REG(CE_DMA_OUT_XFER_CNTR));
++	}
+ 
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 	return 0;
+ }
+ 
+-static int adec_engine_hw_reset(int index, ADEC_ACC_ENG_T engine)
++static int adec_engine_hw_reset(int index, ADEC_ACC_ENG_T engine_type)
+ {
+ 	uint32_t val;
+ 	int tmp;
+ 
+-	if (engine == E_ACC_ENG_ALL)
++	if (engine_type == E_ACC_ENG_ALL)
+ 		tmp = 0xffff;
+ 	else
+-		tmp = 1 << engine;
++		tmp = 1 << engine_type;
+ 
++#if 0
+ 	val = adec_read32(index, CE_ADEC_CTRL);
+ 	val |= tmp;
+ 	adec_write32(index, CE_ADEC_CTRL, val);
+ 	val &= ~tmp;
+ 	adec_write32(index, CE_ADEC_CTRL, val);
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	val = readl(ADEC_REG(CE_ADEC_CTRL));
++	writel(tmp | val, ADEC_REG(CE_ADEC_CTRL));
++	writel(~tmp & val, ADEC_REG(CE_ADEC_CTRL));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+-	if (engine == E_ACC_ENG_DMA) {
++	if (engine_type == E_ACC_ENG_DMA) {
+ 		regmap_update_bits(ciu_base, ENGINE_DMA_ADDR_HIGH_OFFSET,
+ 				(WADDR_BIT32 | RADDR_BIT32), 0);
+ 	}
+@@ -331,7 +527,14 @@ static int abus_set_mode(int index, ABUS_GRP_A_T grp_a_mode,
+ {
+ 	uint32_t val;
+ 
++#if 0
+ 	val = abus_read32(index, CE_ABUS_BUS_CTRL);
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	val = readl(ABUS_REG(CE_ABUS_BUS_CTRL));
++#endif
+ 
+ 	val &= ~(0x77 << 0x4);
+ 	val |= (grp_a_mode << 0x4) | (grp_b_mode << 0x8);
+@@ -352,13 +555,21 @@ static int abus_set_mode(int index, ABUS_GRP_A_T grp_a_mode,
+ 		return -EINVAL;
+ 	}
+ 
++#if 0
+ 	abus_write32(index, CE_ABUS_BUS_CTRL, val);
++#else
++	writel(val, ABUS_REG(CE_ABUS_BUS_CTRL));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+ 	return 0;
+ }
+ 
+ static void crypto_aes_sw_reset(int index)
+ {
++#if 0
+ 	uint32_t val;
+ 
+ 	val = 0x1;
+@@ -367,17 +578,37 @@ static void crypto_aes_sw_reset(int index)
+ 	crypto_write32(index, CE_CRYPTO_AES_CONTROL_REG, val);
+ 
+ 	return;
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	writel(0x1, CRYPTO_REG(CE_CRYPTO_AES_CONTROL_REG));
++	writel(0x0, CRYPTO_REG(CE_CRYPTO_AES_CONTROL_REG));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ }
++
+ static void crypto_aes_start(int index)
+ {
++#if 0
+ 	uint32_t val;
+ 
+ 	val = 0x1;
+ 	crypto_write32(index, CE_CRYPTO_AES_COMMAND_REG, val);
+ 
+ 	return;
+-}
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
+ 
++	writel(0x1, CRYPTO_REG(CE_CRYPTO_AES_COMMAND_REG));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
++}
+ 
+ static int crypto_aes_wait(int index)
+ {
+@@ -391,14 +622,15 @@ static int crypto_aes_wait(int index)
+ 	return 0;
+ }
+ 
+-static int crypto_engine_select(int index, CRYPTO_ENG_SEL_T engine)
++static int crypto_engine_select(int index, CRYPTO_ENG_SEL_T engine_sel)
+ {
+ 	uint32_t val;
+ 
++#if 0
+ 	val = crypto_read32(index, CE_CRYPTO_ENGINE_SEL_REG);
+ 	val &= ~0x3;
+ 
+-	switch (engine) {
++	switch (engine_sel) {
+ 	case E_ENG_AES:
+ 		val |= (0x1);
+ 		break;
+@@ -407,6 +639,28 @@ static int crypto_engine_select(int index, CRYPTO_ENG_SEL_T engine)
+ 	}
+ 
+ 	crypto_write32(index, CE_CRYPTO_ENGINE_SEL_REG, val);
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	val = readl(CRYPTO_REG(CE_CRYPTO_ENGINE_SEL_REG));
++	val &= ~0x3;
++
++	switch (engine_sel) {
++	case E_ENG_AES:
++		val |= (0x1);
++		break;
++	default:
++		csr_set(CSR_TCMCFG, tcm_csr);
++		arch_local_irq_restore(flags);
++		return -EINVAL;
++	}
++
++	writel(val, CRYPTO_REG(CE_CRYPTO_ENGINE_SEL_REG));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+ 	return 0;
+ }
+@@ -419,6 +673,7 @@ static int crypto_aes_set_iv(int index, const uint8_t *iv)
+ 	if (iv == NULL)
+ 		return -EINVAL;
+ 
++#if 0
+ 	for(reg_index = 0; reg_index < 4; reg_index++)
+ 	{
+ 		val = ((iv[(reg_index << 2) + 0] & 0xFF)<< 0)|\
+@@ -427,6 +682,22 @@ static int crypto_aes_set_iv(int index, const uint8_t *iv)
+ 			((iv[(reg_index << 2) + 3] & 0xFF)<< 24);
+ 		crypto_write32(index, CE_CRYPTO_IV_REG(reg_index),val);
+ 	}
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	for(reg_index = 0; reg_index < 4; reg_index++)
++	{
++		val = ((iv[(reg_index << 2) + 0] & 0xFF)<< 0)|\
++			((iv[(reg_index << 2) + 1] & 0xFF)<< 8)|\
++			((iv[(reg_index << 2) + 2] & 0xFF)<< 16)|\
++			((iv[(reg_index << 2) + 3] & 0xFF)<< 24);
++		writel(val, CRYPTO_REG(CE_CRYPTO_IV_REG(reg_index)));
++	}
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+ 	return 0;
+ }
+@@ -439,6 +710,7 @@ static int crypto_aes_get_iv(int index, uint8_t *iv)
+ 	if (iv == NULL)
+ 		return -EINVAL;
+ 
++#if 0
+ 	for(reg_index = 0; reg_index < 4; reg_index++)
+ 	{
+ 		val = crypto_read32(index, CE_CRYPTO_IV_REG(reg_index));
+@@ -447,6 +719,22 @@ static int crypto_aes_get_iv(int index, uint8_t *iv)
+ 		iv[(reg_index << 2) + 2] = (val >> 16) & 0xFF;
+ 		iv[(reg_index << 2) + 3] = (val >> 24) & 0xFF;
+ 	}
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	for(reg_index = 0; reg_index < 4; reg_index++)
++	{
++		val = readl(CRYPTO_REG(CE_CRYPTO_IV_REG(reg_index)));
++		iv[(reg_index << 2) + 0] = val & 0xFF;
++		iv[(reg_index << 2) + 1] = (val >> 8) & 0xFF;
++		iv[(reg_index << 2) + 2] = (val >> 16) & 0xFF;
++		iv[(reg_index << 2) + 3] = (val >> 24) & 0xFF;
++	}
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+ 	return 0;
+ }
+@@ -459,6 +747,7 @@ static int crypto_aes_set_mode(int index, AES_MODE_T mode,
+ 
+ 	crypto_engine_select(index, E_ENG_AES);
+ 
++#if 0
+ 	val = crypto_read32(index, CE_CRYPTO_AES_CONFIG_REG);
+ 	val &= ~(0x7 << 0x3);
+ 	switch (mode) {
+@@ -505,6 +794,65 @@ static int crypto_aes_set_mode(int index, AES_MODE_T mode,
+ 	}
+ 
+ 	crypto_write32(index, CE_CRYPTO_AES_CONFIG_REG, val);
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	val = readl(CRYPTO_REG(CE_CRYPTO_AES_CONFIG_REG));
++
++	val &= ~(0x7 << 0x3);
++	switch (mode) {
++	case E_AES_ECB:
++		val |= (0x0 << 0x3);
++		break;
++	case E_AES_CBC:
++		val |= (0x1 << 0x3);
++		break;
++	case E_AES_XTS:
++		val |= (0x3 << 0x3);
++		break;
++	default:
++		csr_set(CSR_TCMCFG, tcm_csr);
++		arch_local_irq_restore(flags);
++		return -EINVAL;
++	}
++
++	val &= ~(0x3 << 0x1);
++	switch (keylen) {
++	case E_AES_128:
++		val |= (0x0 << 0x1);
++		break;
++	case E_AES_192:
++		val |= (0x2 << 0x1);
++		break;
++	case E_AES_256:
++		val |= (0x1 << 0x1);
++		break;
++	default:
++		csr_set(CSR_TCMCFG, tcm_csr);
++		arch_local_irq_restore(flags);
++		return -EINVAL;
++	}
++
++	val &= ~(0x1 << 0x0);
++	if (op_mode == E_AES_DECRYPT) {
++		val |= (0x1 << 0x0);
++	} else {
++		val |= (0x0 << 0x0);
++	}
++
++	val &= ~(0x1 << 0x6);
++	if (use_rkey == false) {
++		val |= (0x0 << 0x6);
++	} else {
++		val |= (0x1 << 0x6);
++	}
++
++	writel(val, CRYPTO_REG(CE_CRYPTO_AES_CONFIG_REG));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+ 	return 0;
+ }
+@@ -532,6 +880,7 @@ static int crypto_aes_set_key1(int index, const uint8_t *key, AES_KEY_LEN_T keyl
+ 		return -EINVAL;
+ 	}
+ 
++#if 0
+ 	for (reg_index = 0; reg_index < 8; reg_index++) {
+ 		if (reg_index < key_end) {
+ 			val = ((key[0 + (reg_index << 2)] & 0xFF) << 0) |
+@@ -543,6 +892,25 @@ static int crypto_aes_set_key1(int index, const uint8_t *key, AES_KEY_LEN_T keyl
+ 		}
+ 		crypto_write32(index, CE_CRYPTO_K1_W_REG(reg_index), val);
+ 	}
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	for (reg_index = 0; reg_index < 8; reg_index++) {
++		if (reg_index < key_end) {
++			val = ((key[0 + (reg_index << 2)] & 0xFF) << 0) |
++			    ((key[1 + (reg_index << 2)] & 0xFF) << 8) |
++			    ((key[2 + (reg_index << 2)] & 0xFF) << 16) |
++			    ((key[3 + (reg_index << 2)] & 0xFF) << 24);
++		} else {
++			val = 0;
++		}
++		writel(val, CRYPTO_REG(CE_CRYPTO_K1_W_REG(reg_index)));
++	}
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+ 	return 0;
+ }
+@@ -570,6 +938,7 @@ static int crypto_aes_set_key2(int index, const uint8_t *key, AES_KEY_LEN_T keyl
+ 		return -EINVAL;
+ 	}
+ 
++#if 0
+ 	for (reg_index = 0; reg_index < 8; reg_index++) {
+ 		if (reg_index < key_end) {
+ 			val = ((key[0 + (reg_index << 2)] & 0xFF) << 0) |
+@@ -581,6 +950,25 @@ static int crypto_aes_set_key2(int index, const uint8_t *key, AES_KEY_LEN_T keyl
+ 		}
+ 		crypto_write32(index, CE_CRYPTO_K2_W_REG(reg_index), val);
+ 	}
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	for (reg_index = 0; reg_index < 8; reg_index++) {
++		if (reg_index < key_end) {
++			val = ((key[0 + (reg_index << 2)] & 0xFF) << 0) |
++			    ((key[1 + (reg_index << 2)] & 0xFF) << 8) |
++			    ((key[2 + (reg_index << 2)] & 0xFF) << 16) |
++			    ((key[3 + (reg_index << 2)] & 0xFF) << 24);
++		} else {
++			val = 0;
++		}
++		writel(val, CRYPTO_REG(CE_CRYPTO_K2_W_REG(reg_index)));
++	}
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+ 	return 0;
+ }
+@@ -1101,7 +1489,17 @@ static int ce_aes_process_nblocks(int index, const unsigned char *buf_in, unsign
+ 			break;
+ 	}
+ 
++#if 0
+ 	crypto_write32(index, CE_CRYPTO_AES_STREAM_SIZE_REG, blocks << 4);
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	writel(blocks << 4, CRYPTO_REG(CE_CRYPTO_AES_STREAM_SIZE_REG));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ 
+ 	dma_input_start(index);
+ 	dma_output_start(index);
+@@ -1333,6 +1731,7 @@ void ky_aes_reladdr(void)
+ }
+ EXPORT_SYMBOL(ky_aes_reladdr);
+ 
++#if 0
+ __maybe_unused static void engine_reg_dump(int index)
+ {
+         uint32_t val;
+@@ -1384,9 +1783,11 @@ __maybe_unused static void engine_reg_dump(int index)
+ 
+         printk("======> engine[%d] reg dump finish! <======\n", index);
+ }
++#endif
+ 
+ static inline void clear_adec_biu_int_flag(int index)
+ {
++#if 0
+ 	volatile uint32_t val;
+ 
+ 	val = adec_read32(index, CE_ADEC_INT);
+@@ -1394,12 +1795,27 @@ static inline void clear_adec_biu_int_flag(int index)
+ 
+ 	val = biu_read32(index, SP_INTERRUPT_RST);
+ 	biu_write32(index, SP_INTERRUPT_RST, val);
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	writel(readl(
++		ADEC_REG(CE_ADEC_INT)),
++		ADEC_REG(CE_ADEC_INT));
++	writel(readl(
++		BIU_REG(SP_INTERRUPT_RST)),
++		BIU_REG(SP_INTERRUPT_RST));
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ }
+ 
+ static inline void engine_irq_handler(int index)
+ {
+ 	volatile uint32_t val_aes;
+ 
++#if 0
+ 	/* aes */
+ 	val_aes = crypto_read32(index, CE_CRYPTO_AES_INTRPT_SRC_REG);
+ 	if (val_aes & AES_INTERRUPT_MASK)
+@@ -1436,6 +1852,64 @@ static inline void engine_irq_handler(int index)
+ 		complete(&engine[index].dma_input_done);
+ 		return;
+ 	}
++#else
++	unsigned long flags = arch_local_irq_save();
++	unsigned long tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++
++	/* aes */
++	val_aes = readl(CRYPTO_REG(CE_CRYPTO_AES_INTRPT_SRC_REG));
++	if (val_aes & AES_INTERRUPT_MASK)
++	{
++		writel(val_aes, CRYPTO_REG(CE_CRYPTO_AES_INTRPT_SRC_REG));
++		csr_set(CSR_TCMCFG, tcm_csr);
++		arch_local_irq_restore(flags);
++		clear_adec_biu_int_flag(index);
++		engine[index].aes_status = (val_aes & AES_INTERRUPT_FLAG) ? AES_DONE : AES_ERROR;
++		if(!(val_aes & AES_INTERRUPT_FLAG))
++			dev_info(dev, "%s : %d : complete aes_done (0x%x) !\n",__func__,__LINE__,val_aes);
++		complete(&engine[index].aes_done);
++		return;
++	}
++
++	/* dma output */
++	val_aes = readl(DMA_REG(CE_DMA_OUT_INT));
++	if (val_aes & DMA_INTERRUPT_MASK)
++	{
++		csr_set(CSR_TCMCFG, tcm_csr);
++		arch_local_irq_restore(flags);
++		dma_output_stop(index);
++		flags = arch_local_irq_save();
++		tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++		writel(val_aes, DMA_REG(CE_DMA_OUT_INT));
++		csr_set(CSR_TCMCFG, tcm_csr);
++		arch_local_irq_restore(flags);
++		clear_adec_biu_int_flag(index);
++		engine[index].dma_out_status = (val_aes & BIT_DMA_INOUT_DONE) ? DMA_INOUT_DONE : DMA_INOUT_ERROR;
++		complete(&engine[index].dma_output_done);
++		return;
++	}
++
++	/* dma input */
++	val_aes = readl(DMA_REG(CE_DMA_IN_INT));
++	if (val_aes & DMA_INTERRUPT_MASK)
++	{
++		csr_set(CSR_TCMCFG, tcm_csr);
++		arch_local_irq_restore(flags);
++		dma_input_stop(index);
++		flags = arch_local_irq_save();
++		tcm_csr = csr_read_clear(CSR_TCMCFG, TCM_EN);
++		writel(val_aes, DMA_REG(CE_DMA_IN_INT));
++		csr_set(CSR_TCMCFG, tcm_csr);
++		arch_local_irq_restore(flags);
++		clear_adec_biu_int_flag(index);
++		engine[index].dma_in_status = (val_aes & BIT_DMA_INOUT_DONE) ? DMA_INOUT_DONE : DMA_INOUT_ERROR;
++		complete(&engine[index].dma_input_done);
++		return;
++	}
++
++	csr_set(CSR_TCMCFG, tcm_csr);
++	arch_local_irq_restore(flags);
++#endif
+ }
+ 
+ 
