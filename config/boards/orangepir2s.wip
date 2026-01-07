@@ -3,7 +3,7 @@ BOARD_NAME="Orange Pi R2S"
 BOARDFAMILY="ky"
 BOARD_MAINTAINER="sven-ola"
 KERNEL_TARGET="current"
-BOOT_FDT_FILE="ky/x1_orangepi-r2s.dtb"
+BOOT_FDT_FILE="spacemit/x1_orangepi-r2s.dtb"
 BOOTDELAY=1
 FORCE_BOOTSCRIPT_UPDATE="yes"
 SRC_CMDLINE="earlycon=sbi console=tty1 console=ttyS0,115200 loglevel=1"
