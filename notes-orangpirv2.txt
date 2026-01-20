@@ -1,0 +1,54 @@
+To be merged
++ Boot from SSD (upper+lower)
++ SPI NOR flash boot / install
++ SD/TF speed too slow (15mb/s)
+- Check SD UHS in uboot speed limit
++ Brcm SDIO wifi not working
++ Armbian edge: Brcm SDIO Wifi
++ Armbian edge: PCIe NVME IOErr
++ Bluetooth not working
+- RTL 8125 ethernet (2.5gbit R2V board)
++ Ky overlay dtbo's missing
+- Focaltech touch driver from Ky?
+- Ky MIPI/CSI cam modules
+- What is that realtime r_uart?
+- GPU? USB2-OTG? USB3? Sound?
++ Speedup AES HW crypto
++ eMMC working?
+
+Personal wishlist:
+- Device-mapper / dm_era missing
+- Mediatek PCIe wifi modules
+- PCIe adapter: Radeon GPU test
+
+https://github.com/Johnkarazou/OpenWRT-OrangePi_Rv2/tree/24.10/
+Telegram OrangePiRV2
+https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=bab8dea259100a99e047fd11a48940b229d30031
+https://forum.openwrt.org/t/orangepi-r2s-is-a-great-new-risc-v-openwrt-device/234090
+
+https://github.com/tibbotech/bcmdhd-firmware (nvram.txt)
+https://android.googlesource.com/kernel/common/+/bcmdhd-3.10/drivers/net/wireless/bcmdhd (10 years old)
+https://github.com/StreamUnlimited/broadcom-bcmdhd-4359/
+
+Notes:
+./compile.sh BOARD=orangepirv2 BRANCH=current RELEASE=trixie KERNEL_CONFIGURE=no BUILD_MINIMAL=yes KERNEL_GIT=shallow
+make ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- olddefconfig
+make ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- savedefconfig
+--
+./compile.sh docker-shell
+cd cache/sources/linux-kernel-worktree/6.6__spacemit__riscv64
+make -j$(nproc) ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- INSTALL_MOD_STRIP=1 all install modules_install dtbs_install
+rsync -av --delete /boot/ /armbian/output/boot && rsync -av --delete /lib/modules/ /armbian/output/modules
+--
+rsync -av /usr/src/armbian-build/output/boot/ root@opirv2:/boot && rsync -av /usr/src/armbian-build/output/modules/ root@opirv2:/lib/modules
+
+rsync -av /usr/src/armbian-build-ky/output/boot/ root@opirv2:/boot && rsync -av /usr/src/armbian-build-ky/output/modules/ root@opirv2:/lib/modules
+--
+update-initramfs -c -k 6.18.5+
+ln -snf vmlinuz-6.18.5+ /boot/Image && ln -snf dtbs/6.18.5+ /boot/dtb && ln -snf uInitrd-6.18.5+ /boot/uInitrd
+
+update-initramfs -c -k 6.6.99+
+ln -snf vmlinuz-6.6.99+ /boot/Image && ln -snf dtbs/6.6.99+ /boot/dtb && ln -snf uInitrd-6.6.99+ /boot/uInitrd
+
+update-initramfs -c -k 6.6.63+
+ln -snf vmlinuz-6.6.63+ /boot/Image && ln -snf dtbs/6.6.63+ /boot/dtb && ln -snf uInitrd-6.6.63+ /boot/uInitrd
