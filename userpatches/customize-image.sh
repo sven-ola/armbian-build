@@ -33,11 +33,15 @@ Main() {
 			# your code here
 			;;
 		trixie)
-			cat > ${SDCARD}/etc/apt/sources.list.d/privat-in.list <<- EOF
-				deb https://privat-in.de/repo trixie main
-				deb-src https://privat-in.de/repo trixie main
+			cat > ${SDCARD}/etc/apt/sources.list.d/privat-in.sources <<- EOF
+				Types: deb deb-src
+				URIs: https://privat-in.de/repo
+				Suites: trixie
+				Components: main
+				Signed-By: /usr/local/share/keyrings/privat-in.asc
 			EOF
-			cat > ${SDCARD}/etc/apt/trusted.gpg.d/privat-in.asc <<- EOF
+			mkdir -p ${SDCARD}/usr/local/share/keyrings
+			cat > ${SDCARD}/usr/local/share/keyrings/privat-in.asc <<- EOF
 				-----BEGIN PGP PUBLIC KEY BLOCK-----
 
 				mQGNBGhC54ABDADWtRr98Hxc+GLyNz1j/2foe8dcUZY8sT8jego04rLHOm2NifBL
