@@ -5,8 +5,8 @@
 # Copyright (c) 2026 Mono Technologies Inc.
 #
 # NXP ASK (Application Solutions Kit) extension for LS1046A
-# Builds and installs: kernel modules (CDX, FCI, auto-bridge),
-# userspace tools (fmlib, fmc, libfci, libcli, dpa-app, cmm),
+# Integrates kernel modules (CDX, FCI, auto-bridge, sfp-led, lp5812) in-tree
+# and builds userspace tools (fmlib, fmc, libfci, libcli, dpa-app, cmm),
 # patched system libraries, and configuration files.
 #
 # All ASK sources, patches, and configs come from the ASK repo.
@@ -15,7 +15,7 @@
 # Source repos and refs (pinned to match Yocto)
 # For local testing: set ASK_REPO="file:///path/to/ASK" — the Docker mount hook below handles it
 declare -g ASK_REPO="https://github.com/we-are-mono/ASK.git"
-declare -g ASK_BRANCH="tag:mt-6.12.49-2.2.0"
+declare -g ASK_BRANCH="commit:a211ea865379362058c6656b9c448e4a7050e93c"
 declare -g FMLIB_REPO="https://github.com/nxp-qoriq/fmlib.git"
 declare -g FMLIB_COMMIT="7a58ecaf0d90d71d6b78d3ac7998282a472c4394"
 declare -g FMC_REPO="https://github.com/nxp-qoriq/fmc.git"
@@ -66,17 +66,77 @@ function post_family_config__ask_fetch_repo() {
 	declare -g ASK_CACHE_DIR="${SRC}/cache/sources/ask-repo"
 }
 
-# Ensure kernel headers are available for module builds
-function extension_finish_config__ask_enable_headers() {
+# Post-config setup: enable kernel headers (userspace builds need FMAN UAPI headers)
+# and derive multiarch triplet from KERNEL_COMPILER (set by arch config)
+function extension_finish_config__ask_setup() {
 	declare -g INSTALL_HEADERS="yes"
-	# Derive multiarch triplet here (not at source time) — KERNEL_COMPILER is set by arch config
 	[[ -z "${KERNEL_COMPILER}" ]] && exit_with_error "ASK extension: KERNEL_COMPILER is not set, cannot derive host triplet"
 	declare -g ASK_HOST_TRIPLET="${KERNEL_COMPILER%-}"
-	display_alert "ASK extension" "enabling kernel headers for module builds" "info"
 }
 
-# Host build dependencies — kernel module cross-compilation only needs the kernel source tree
-# (libxml2-dev, libtclap-dev, libpcap-dev, pkg-config are installed in-chroot for userspace builds)
+# Copy ASK kernel module sources into the kernel tree and enable them in Kconfig.
+# Runs during custom_kernel_config — AFTER patching (which does git reset + git clean),
+# but BEFORE olddefconfig parses Kconfig. kernel_copy_extra_sources runs too early
+# (files get wiped by git clean from CLEAN_LEVEL=make-kernel).
+function custom_kernel_config__ask_modules() {
+	# Invalidate kernel cache when ASK source changes (same pattern as Khadas meson-s4t7)
+	kernel_config_modifying_hashes+=("ask_modules=${ASK_BRANCH}")
+
+	# Skip file operations during config-dump-json and version calculation
+	[[ ! -f .config ]] && return 0
+
+	display_alert "ASK extension" "copying ASK module sources into kernel tree" "info"
+
+	local ask_drv="${kernel_work_dir}/drivers/net/ethernet/freescale/ask"
+	local bsp_dir="${SRC}/packages/bsp/gateway-dk"
+
+	# Copy module sources and Kbuild files from ASK cache
+	# (Kbuild files coexist with old Makefiles — kbuild prefers Kbuild when both exist)
+	mkdir -p "${ask_drv}"
+	cp -a "${ASK_CACHE_DIR}/${ASK_CDX_DIR}" "${ask_drv}/cdx"
+	cp -a "${ASK_CACHE_DIR}/${ASK_FCI_DIR}" "${ask_drv}/fci"
+	cp -a "${ASK_CACHE_DIR}/${ASK_AUTOBRIDGE_DIR}" "${ask_drv}/auto_bridge"
+
+	# Parent Kconfig and Makefile from ASK repo
+	cp "${ASK_CACHE_DIR}/Kconfig" "${ask_drv}/Kconfig"
+	cp "${ASK_CACHE_DIR}/Kbuild.mk" "${ask_drv}/Makefile"
+
+	# Board-specific modules (not part of ASK repo — from Armbian BSP)
+	if [[ "${BOARD}" == "gateway-dk" ]]; then
+		mkdir -p "${ask_drv}/sfp_led" "${ask_drv}/leds_lp5812"
+		cp "${bsp_dir}/sfp-led.c" "${ask_drv}/sfp_led/"
+		cp "${bsp_dir}/sfp-led.Kbuild" "${ask_drv}/sfp_led/Kbuild"
+		cp "${bsp_dir}/leds-lp5812.c" "${ask_drv}/leds_lp5812/"
+		cp "${bsp_dir}/leds-lp5812.h" "${ask_drv}/leds_lp5812/"
+		cp "${bsp_dir}/leds-lp5812.Kbuild" "${ask_drv}/leds_lp5812/Kbuild"
+
+		# Add board-specific entries to ASK Kconfig and Makefile
+		patch -p1 -d "${ask_drv}" < "${bsp_dir}/ask-kconfig-board-modules.patch"
+		echo 'obj-$(CONFIG_ASK_SFP_LED)	+= sfp_led/' >> "${ask_drv}/Makefile"
+		echo 'obj-$(CONFIG_ASK_LEDS_LP5812)	+= leds_lp5812/' >> "${ask_drv}/Makefile"
+	fi
+
+	# Wire into parent freescale Kconfig and Makefile
+	local fsl_dir="${kernel_work_dir}/drivers/net/ethernet/freescale"
+	if ! grep -q 'source.*ask/Kconfig' "${fsl_dir}/Kconfig" 2>/dev/null; then
+		sed -i '/endif.*NET_VENDOR_FREESCALE/i source "drivers/net/ethernet/freescale/ask/Kconfig"' "${fsl_dir}/Kconfig"
+	fi
+	if ! grep -q 'ask/' "${fsl_dir}/Makefile" 2>/dev/null; then
+		echo 'obj-y += ask/' >> "${fsl_dir}/Makefile"
+	fi
+
+	display_alert "ASK extension" "ASK module sources and Kbuild files placed in kernel tree" "info"
+
+	# Enable ASK modules in kernel config (opts_m array, same pattern as meson64_common.inc)
+	opts_y+=("CONFIG_NXP_ASK")
+	opts_m+=("CONFIG_ASK_CDX")
+	opts_m+=("CONFIG_ASK_FCI")
+	opts_m+=("CONFIG_ASK_AUTO_BRIDGE")
+	if [[ "${BOARD}" == "gateway-dk" ]]; then
+		opts_m+=("CONFIG_ASK_SFP_LED")
+		opts_m+=("CONFIG_ASK_LEDS_LP5812")
+	fi
+}
 
 # Copy ASK kernel patch to userpatches (gitignored) so it's applied during kernel build.
 # userpatches/ is the Armbian-standard location for extension-provided patches — the build
@@ -93,121 +153,33 @@ function post_family_config__ask_kernel_patch() {
 	display_alert "ASK extension" "ASK kernel patch staged in userpatches" "info"
 }
 
-function cleanup_ask_module_builddir() {
-	[[ -n "${ASK_MODULE_BUILDDIR}" && -d "${ASK_MODULE_BUILDDIR}" ]] && rm -rf "${ASK_MODULE_BUILDDIR}" || true
-}
 
-# Build kernel modules after kernel debs are installed in chroot
-function post_install_kernel_debs__build_ask_modules() {
-	[[ "${INSTALL_HEADERS}" != "yes" ]] && return 0
-
-	display_alert "ASK extension" "building kernel modules (host cross-compile)" "info"
-
-	declare -g ASK_KERNEL_VER
-	ASK_KERNEL_VER=$(ls -1v "${SDCARD}/lib/modules/" | tail -1)
-	[[ -z "${ASK_KERNEL_VER}" ]] && exit_with_error "No kernel version found in ${SDCARD}/lib/modules/"
-	local kernel_ver="${ASK_KERNEL_VER}"
-
-	# Full kernel source tree (needed for CDX — it includes ncsw_config.mk from the FMAN driver)
-	local ksrc="${SRC}/cache/sources/linux-kernel-worktree/${KERNEL_MAJOR_MINOR}__${LINUXFAMILY}__${ARCH}"
-	[[ -d "${ksrc}" ]] || exit_with_error "Kernel source tree not found at ${ksrc}"
-
-	local cross="${KERNEL_COMPILER}"
-	local bsp_dir="${SRC}/packages/bsp/gateway-dk"
-	local builddir
-	builddir=$(mktemp -d)
-	declare -g ASK_MODULE_BUILDDIR="${builddir}"
-	add_cleanup_handler cleanup_ask_module_builddir
-
-	# Copy ASK module sources to build dir
-	cp -a "${ASK_CACHE_DIR}/${ASK_CDX_DIR}" "${builddir}/cdx"
-	cp -a "${ASK_CACHE_DIR}/${ASK_FCI_DIR}" "${builddir}/fci"
-	cp -a "${ASK_CACHE_DIR}/${ASK_AUTOBRIDGE_DIR}" "${builddir}/auto-bridge"
-
-	# Build CDX module (cross-compile on host against full kernel source)
-	# NXP ASK uses LS1043A as the DPAA1 platform ID for all DPAA1 SoCs (LS1043A/LS1046A)
-	display_alert "ASK extension" "building CDX kernel module" "info"
-	make -C "${builddir}/cdx" \
-		KERNELDIR="${ksrc}" ARCH=arm64 CROSS_COMPILE="${cross}" PLATFORM=LS1043A \
-		CFG_FLAGS="-DSEC_PROFILE_SUPPORT -DVLAN_FILTER -DWIFI_ENABLE -DENABLE_EGRESS_QOS" \
-		|| exit_with_error "CDX module build failed"
-
-	# Build FCI module (depends on CDX Module.symvers)
-	display_alert "ASK extension" "building FCI kernel module" "info"
-	make -C "${builddir}/fci" \
-		KERNEL_SOURCE="${ksrc}" ARCH=arm64 CROSS_COMPILE="${cross}" BOARD_ARCH=arm64 \
-		KBUILD_EXTRA_SYMBOLS="${builddir}/cdx/Module.symvers" \
-		|| exit_with_error "FCI module build failed"
-
-	# Build auto-bridge module (uses its own Makefile which adds -I for br_private.h)
-	display_alert "ASK extension" "building auto-bridge kernel module" "info"
-	make -C "${builddir}/auto-bridge" \
-		KERNEL_SOURCE="${ksrc}" CROSS_COMPILE="${cross}" PLATFORM=LS1043A ENABLE_VLAN_FILTER=y \
-		|| exit_with_error "auto-bridge module build failed"
-
-	# Board-specific modules (gateway-dk only)
-	if [[ "${BOARD}" == "gateway-dk" ]]; then
-		# SFP-LED: GPIO-based SFP port LED control
-		display_alert "ASK extension" "building SFP-LED kernel module" "info"
-		mkdir -p "${builddir}/sfp-led"
-		cp "${bsp_dir}/sfp-led.c" "${builddir}/sfp-led/"
-		cp "${bsp_dir}/sfp-led.mk" "${builddir}/sfp-led/Makefile"
-		pushd "${builddir}/sfp-led"
-		make KERNEL_SRC="${ksrc}" ARCH=arm64 CROSS_COMPILE="${cross}" \
-			|| exit_with_error "SFP-LED module build failed"
-		popd
-
-		# LP5812: TI 4x3 LED matrix controller (not yet in mainline, targeting 6.19+)
-		display_alert "ASK extension" "building LP5812 LED driver" "info"
-		mkdir -p "${builddir}/lp5812"
-		cp "${bsp_dir}/leds-lp5812.c" "${builddir}/lp5812/"
-		cp "${bsp_dir}/leds-lp5812.h" "${builddir}/lp5812/"
-		cp "${bsp_dir}/leds-lp5812.mk" "${builddir}/lp5812/Makefile"
-		pushd "${builddir}/lp5812"
-		make KERNEL_SRC="${ksrc}" ARCH=arm64 CROSS_COMPILE="${cross}" \
-			|| exit_with_error "LP5812 module build failed"
-		popd
-	fi
-
-	# Stage built modules for the combined .deb (packaged later in userspace phase)
-	display_alert "ASK extension" "staging kernel modules for packaging" "info"
-	declare -g ASK_MODULE_STAGING="${SRC}/cache/sources/ask-module-staging"
-	rm -rf "${ASK_MODULE_STAGING}"
-	mkdir -p "${ASK_MODULE_STAGING}"
-
-	cp "${builddir}/cdx/cdx.ko" "${ASK_MODULE_STAGING}/"
-	cp "${builddir}/fci/fci.ko" "${ASK_MODULE_STAGING}/"
-	cp "${builddir}/auto-bridge/auto_bridge.ko" "${ASK_MODULE_STAGING}/"
-	[[ -f "${builddir}/sfp-led/sfp-led.ko" ]] && cp "${builddir}/sfp-led/sfp-led.ko" "${ASK_MODULE_STAGING}/"
-	[[ -f "${builddir}/lp5812/leds-lp5812.ko" ]] && cp "${builddir}/lp5812/leds-lp5812.ko" "${ASK_MODULE_STAGING}/"
-
-	# Also install directly into rootfs so they're available during the rest of the build
-	mkdir -p "${SDCARD}/lib/modules/${kernel_ver}/extra"
-	cp "${ASK_MODULE_STAGING}"/*.ko "${SDCARD}/lib/modules/${kernel_ver}/extra/"
-	chroot_sdcard "depmod -a ${kernel_ver}" || exit_with_error "depmod failed"
+# Install module autoload config (modules are in the kernel .deb, just need the load list)
+function post_install_kernel_debs__ask_module_autoload() {
 	cp "${ASK_CACHE_DIR}/config/ask-modules.conf" "${SDCARD}/etc/modules-load.d/"
-
-	# Clean up build dir
-	rm -rf "${builddir}"
-
-	display_alert "ASK extension" "kernel modules built and staged" "info"
 }
 
 # Copy patches into chroot before patched library builds (runs before build_ask_userspace)
 function pre_customize_image__000_prepare_ask_patches() {
-	mkdir -p "${SDCARD}/tmp/ask-patches"
-	local patch_dirs=("libnetfilter-conntrack" "libnfnetlink" "iptables")
+	# Stage per-package trees (version subdirs preserved) so rebuild_patched_deb
+	# can pick the patch matching the upstream source version.
+	local patch_dirs=("libnetfilter-conntrack" "libnfnetlink")
 	for pdir in "${patch_dirs[@]}"; do
 		[[ -d "${ASK_CACHE_DIR}/patches/${pdir}" ]] || exit_with_error "ASK patch directory missing" "${ASK_CACHE_DIR}/patches/${pdir}"
-		cp "${ASK_CACHE_DIR}/patches/${pdir}/"*.patch "${SDCARD}/tmp/ask-patches/"
+		mkdir -p "${SDCARD}/tmp/ask-patches/${pdir}"
+		cp -a "${ASK_CACHE_DIR}/patches/${pdir}/." "${SDCARD}/tmp/ask-patches/${pdir}/"
 	done
 
-	# Enable deb-src for apt-get source
-	chroot_sdcard "if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-		sed -i 's/^Types: deb\$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources; \
-	elif [ -f /etc/apt/sources.list ]; then \
-		sed -i 's/^#\\s*deb-src/deb-src/' /etc/apt/sources.list; \
-	fi && apt-get update -qq"
+	# Enable deb-src for apt-get source (handles both Debian and Ubuntu)
+	# deb822 format: *.sources files (Debian bookworm+, Ubuntu noble+)
+	# Legacy format: sources.list (older Debian/Ubuntu)
+	chroot_sdcard "shopt -s nullglob; \
+		for f in /etc/apt/sources.list.d/*.sources; do \
+			sed -i 's/^Types: deb\$/Types: deb deb-src/' \"\$f\"; \
+		done; \
+		if [ -f /etc/apt/sources.list ]; then \
+			sed -i 's/^#\\s*deb-src/deb-src/' /etc/apt/sources.list; \
+		fi && apt-get update -qq"
 	chroot_sdcard_apt_get_install dpkg-dev devscripts
 }
 
@@ -215,13 +187,17 @@ function pre_customize_image__000_prepare_ask_patches() {
 function pre_customize_image__001_build_ask_userspace() {
 	display_alert "ASK extension" "building userspace components" "info"
 
-	local kernel_ver="${ASK_KERNEL_VER}"
+	local kernel_ver
+	kernel_ver=$(ls -1v "${SDCARD}/lib/modules/" | tail -1)
+	[[ -z "${kernel_ver}" ]] && exit_with_error "No kernel version found in ${SDCARD}/lib/modules/"
 	local kdir="/usr/src/linux-headers-${kernel_ver}"
 
-	# Install build dependencies in chroot
+	# Install build dependencies and runtime packages in chroot
+	# iptables is a runtime dep — CMM uses QOSMARK rules via our xtables extensions
 	display_alert "ASK extension" "installing build dependencies" "info"
 	chroot_sdcard_apt_get_install build-essential \
-		pkg-config libxml2-dev libpcap-dev libcrypt-dev libtclap-dev
+		pkg-config libxml2-dev libpcap-dev libcrypt-dev libtclap-dev libxtables-dev \
+		iptables
 
 	# Copy sources into chroot
 	mkdir -p "${SDCARD}/tmp/ask-userspace"
@@ -301,6 +277,27 @@ function pre_customize_image__001_build_ask_userspace() {
 	cp "${ASK_CACHE_DIR}/${ASK_DPA_APP_DIR}/files/etc/cdx_pcd.xml" "${SDCARD}/etc/"
 	cp "${ASK_CACHE_DIR}/${ASK_DPA_APP_DIR}/files/etc/cdx_sp.xml" "${SDCARD}/etc/"
 
+	# --- xtables extensions (standalone .so files, not patching iptables) ---
+	# Note: we don't use pkg-config for libxtables here. These are dlopen()-loaded
+	# extensions — they don't link against libxtables.so, they use symbols resolved
+	# from the iptables process that loads them. The -I./include picks up our local
+	# xt_QOSMARK.h etc. UAPI headers which aren't in libxtables-dev (they're our
+	# additions). Adding -lxtables would cause duplicate symbol issues at load time.
+	local ask_xtables_modules=(libxt_qosmark libxt_QOSMARK libxt_qosconnmark libxt_QOSCONNMARK)
+	display_alert "ASK extension" "building xtables extensions" "info"
+	cp -a "${ASK_CACHE_DIR}/iptables-extensions" "${SDCARD}/tmp/ask-userspace/iptables-extensions"
+	chroot_sdcard "cd /tmp/ask-userspace/iptables-extensions && \
+		for name in ${ask_xtables_modules[*]}; do \
+			gcc -shared -fPIC -O2 \
+				-I./include \
+				-o \"\${name}.so\" \"\${name}.c\" || exit 1; \
+		done && \
+		install -d /usr/lib/${ASK_HOST_TRIPLET}/xtables && \
+		for name in ${ask_xtables_modules[*]}; do \
+			install -m 644 \"\${name}.so\" /usr/lib/${ASK_HOST_TRIPLET}/xtables/ || exit 1; \
+		done" \
+		|| exit_with_error "xtables extensions build failed"
+
 	# --- Patched system libraries (must be before CMM which depends on patched libnetfilter-conntrack) ---
 	build_ask_patched_libraries
 
@@ -339,7 +336,7 @@ function pre_customize_image__001_build_ask_userspace() {
 	# The postinst re-applies holds on every upgrade. Security updates must be
 	# tracked and re-patched manually.
 	display_alert "ASK extension" "pinning patched packages" "info"
-	chroot_sdcard "apt-mark hold libnetfilter-conntrack3 libnfnetlink0 iptables"
+	chroot_sdcard "apt-mark hold libnetfilter-conntrack3 libnfnetlink0"
 
 	# Install sysctl tuning for conntrack
 	install -Dm 644 "${SRC}/packages/bsp/gateway-dk/99-ls1046a-conntrack.conf" \
@@ -348,19 +345,12 @@ function pre_customize_image__001_build_ask_userspace() {
 	# Cleanup build sources
 	rm -rf "${SDCARD}/tmp/ask-userspace" "${SDCARD}/tmp/ask-patches"
 
-	# --- Package everything as a single gateway-dk-ask .deb ---
-	display_alert "ASK extension" "packaging combined ASK .deb" "info"
+	# --- Package ASK userspace as a .deb (kernel modules are in linux-image .deb) ---
+	display_alert "ASK extension" "packaging ASK userspace .deb" "info"
 	local pkgname="gateway-dk-ask"
 	local pkgdir
 	pkgdir=$(mktemp -d)
 	mkdir -p "${pkgdir}/DEBIAN"
-
-	# Kernel modules (staged during post_install_kernel_debs phase)
-	local moddir="${pkgdir}/lib/modules/${kernel_ver}/extra"
-	mkdir -p "${moddir}" "${pkgdir}/etc/modules-load.d"
-	cp "${ASK_MODULE_STAGING}"/*.ko "${moddir}/"
-	cp "${ASK_CACHE_DIR}/config/ask-modules.conf" "${pkgdir}/etc/modules-load.d/"
-	rm -rf "${ASK_MODULE_STAGING}"
 
 	# Snapshot userspace files into package tree
 	local -a ask_files=(
@@ -398,6 +388,15 @@ function pre_customize_image__001_build_ask_userspace() {
 		done
 	done
 
+	# xtables extensions — use the same explicit list as the build step
+	local ask_xtables_modules=(libxt_qosmark libxt_QOSMARK libxt_qosconnmark libxt_QOSCONNMARK)
+	mkdir -p "${pkgdir}/usr/lib/${ASK_HOST_TRIPLET}/xtables"
+	for name in "${ask_xtables_modules[@]}"; do
+		local src="${SDCARD}/usr/lib/${ASK_HOST_TRIPLET}/xtables/${name}.so"
+		[[ -f "${src}" ]] || exit_with_error "xtables extension missing" "${name}.so"
+		cp -a "${src}" "${pkgdir}/usr/lib/${ASK_HOST_TRIPLET}/xtables/"
+	done
+
 	# Version: kernel version + build date — allows bugfix rebuilds without kernel change
 	local ask_version="${kernel_ver}+$(date +%Y%m%d)"
 
@@ -412,17 +411,17 @@ Version: ${ask_version}
 Architecture: arm64
 Section: net
 Priority: optional
-Maintainer: Mono Technologies <support@mono.si>
-Depends: linux-image-${BRANCH}-${LINUXFAMILY} (>= ${kernel_ver}), libxml2, libpcap0.8
-Description: NXP ASK hardware offloading for Mono Gateway DK
- Kernel modules (CDX, FCI, auto-bridge, sfp-led, leds-lp5812) and
- userspace tools (fmlib, fmc, libfci, libcli, dpa-app, cmm) for
- NXP ASK data-plane acceleration on the LS1046A Gateway DK.
+Maintainer: Tomaz Zaman <tomaz@mono.si>
+Depends: linux-image-${BRANCH}-${LINUXFAMILY} (>= ${kernel_ver}), libxml2 | libxml2-16, libpcap0.8, iptables
+Description: NXP ASK hardware offloading userspace for Mono Gateway DK
+ Userspace tools (fmlib, fmc, libfci, libcli, dpa-app, cmm) and configuration
+ for NXP ASK data-plane acceleration on the LS1046A Gateway DK.
+ Kernel modules (CDX, FCI, auto-bridge, sfp-led, leds-lp5812) are in the
+ linux-image package.
 EOF
 
 	cat > "${pkgdir}/DEBIAN/postinst" << EOF
 #!/bin/bash
-depmod -a ${kernel_ver}
 systemctl daemon-reload || true
 ldconfig || true
 # Enable CMM service on OTA install (guarded by ConditionPathExists=/dev/cdx_ctrl at runtime)
@@ -430,7 +429,7 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl enable cmm.service 2>/dev/null || true
 fi
 # Re-pin patched ASK libraries — vanilla Debian versions break CMM/CDX offloading
-apt-mark hold libnetfilter-conntrack3 libnfnetlink0 iptables 2>/dev/null || true
+apt-mark hold libnetfilter-conntrack3 libnfnetlink0 2>/dev/null || true
 EOF
 	chmod 755 "${pkgdir}/DEBIAN/postinst"
 
@@ -442,11 +441,10 @@ EOF
 
 	cat > "${pkgdir}/DEBIAN/postrm" << EOF
 #!/bin/bash
-depmod -a ${kernel_ver} || true
 ldconfig || true
 systemctl daemon-reload || true
 if [ "\$1" = "remove" ] || [ "\$1" = "purge" ]; then
-    apt-mark unhold libnetfilter-conntrack3 libnfnetlink0 iptables 2>/dev/null || true
+    apt-mark unhold libnetfilter-conntrack3 libnfnetlink0 2>/dev/null || true
 fi
 EOF
 	chmod 755 "${pkgdir}/DEBIAN/postrm"
@@ -456,6 +454,9 @@ EOF
 /etc/cdx_pcd.xml
 /etc/cdx_sp.xml
 /etc/config/fastforward
+/etc/fmc/config/cfgdata.xsd
+/etc/fmc/config/hxs_pdl_v3.xml
+/etc/fmc/config/netpcd.xsd
 /etc/sysctl.d/99-ls1046a-conntrack.conf
 CONFFILES
 
@@ -465,7 +466,8 @@ CONFFILES
 	run_host_command_logged dpkg-deb -b "${pkgdir}" "${SRC}/output/debs/${debfile}" \
 		|| exit_with_error "dpkg-deb failed for ${debfile}"
 	cp "${SRC}/output/debs/${debfile}" "${SDCARD}/root/"
-	chroot_sdcard "dpkg -i /root/${debfile}" || exit_with_error "dpkg -i failed for ${debfile}"
+	chroot_sdcard "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /root/${debfile}" \
+		|| exit_with_error "apt install failed for ${debfile}"
 	rm -f "${SDCARD}/root/${debfile}"
 
 	rm -rf "${pkgdir}"
@@ -478,7 +480,7 @@ function build_ask_patched_libraries() {
 	# Install all build dependencies upfront
 	display_alert "ASK extension" "installing build deps for patched libraries" "info"
 	chroot_sdcard "DEBIAN_FRONTEND=noninteractive apt-get -y build-dep \
-		libnetfilter-conntrack libnfnetlink iptables"
+		libnetfilter-conntrack libnfnetlink"
 
 	# Staging dir for patched .debs (saved to output later)
 	mkdir -p "${SDCARD}/tmp/ask-patched-debs"
@@ -492,9 +494,6 @@ function build_ask_patched_libraries() {
 		"01-nxp-ask-nonblocking-heap-buffer.patch" \
 		"libnfnetlink0_*.deb libnfnetlink-dev_*.deb"
 
-	rebuild_patched_deb "iptables" \
-		"001-qosmark-extensions.patch" \
-		"libip4tc2_*.deb libip6tc2_*.deb libxtables12_*.deb iptables_*.deb"
 
 	# Copy patched .debs to output for distribution
 	mkdir -p "${SRC}/output/debs"
@@ -502,8 +501,12 @@ function build_ask_patched_libraries() {
 	rm -rf "${SDCARD}/tmp/ask-patched-debs"
 }
 
-# Helper: rebuild a Debian package with an ASK patch in an isolated chroot directory
+# Helper: rebuild a Debian package with an ASK patch in an isolated chroot directory.
 # Usage: rebuild_patched_deb <pkg_name> <patch_file> <deb_globs>
+# The patch is resolved under /tmp/ask-patches/<pkg>/<upstream_version>/<patch_file>,
+# where <upstream_version> is parsed from the source tree's debian/changelog after
+# apt-get source. This lets a single ASK repo cover multiple target distros whose
+# upstream library versions differ (e.g. Trixie/Noble 1.1.0 vs Resolute 1.1.1).
 function rebuild_patched_deb() {
 	local pkg="$1" patch="$2" debs="$3"
 	local workdir="/tmp/ask-rebuild-${pkg}"
@@ -514,7 +517,14 @@ function rebuild_patched_deb() {
 		rm -rf '${workdir}' && mkdir -p '${workdir}' && cd '${workdir}' && \
 		apt-get source '${pkg}' && \
 		cd \$(ls -d ${pkg}-*/ | head -1) && \
-		patch -p1 < '/tmp/ask-patches/${patch}' && \
+		upstream_ver=\$(dpkg-parsechangelog -l debian/changelog -S Version \
+			| sed -E 's/^[0-9]+://; s/-[^-]+\$//; s/^([0-9]+\\.[0-9]+\\.[0-9]+).*/\\1/') && \
+		patch_path=\"/tmp/ask-patches/${pkg}/\${upstream_ver}/${patch}\" && \
+		if [ ! -f \"\${patch_path}\" ]; then \
+			echo \"ERROR: no ASK patch for ${pkg} upstream \${upstream_ver} (looked for \${patch_path})\" >&2; \
+			exit 1; \
+		fi && \
+		patch -p1 < \"\${patch_path}\" && \
 		DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -b -uc -us && \
 		cd '${workdir}' && dpkg -i ${debs} && \
 		cp ${debs} /tmp/ask-patched-debs/ && \
