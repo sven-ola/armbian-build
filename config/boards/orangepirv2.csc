@@ -13,7 +13,7 @@ PACKAGE_LIST_BOARD="rfkill bluetooth bluez bluez-tools pciutils"
 
 case "${BRANCH}" in current)
 	BCMDHD_SPACEMIT_TYPE="sdio"
-	BCMDHD_SPACEMIT_TAG="v101.10.591.84.37-4"
+	BCMDHD_SPACEMIT_TAG="v101.10.591.84.37-6"
 	enable_extension "bcmdhd-spacemit"
 	;;
 esac
