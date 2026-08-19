@@ -68,6 +68,9 @@ function do_main_configuration() {
 	# Fix binman pkg_resources removal in setuptools >= 82. Can be removed when all U-Boot versions are >= v2025.10.
 	enable_extension "uboot-binman-fix-pkg-resources"
 
+	# Fix old U-Boot pylibfdt failing against SWIG >= 4.3 (trixie). No-op on newer U-Boot. Can be removed when all U-Boot versions are >= v2026.07.
+	enable_extension "uboot-fix-pylibfdt-swig"
+
 	# Network stack to use, default to network-manager; configuration can override this.
 	# Will be made read-only further down.
 	declare -g NETWORKING_STACK="${NETWORKING_STACK}"
@@ -152,6 +155,7 @@ function do_main_configuration() {
 			;;
 		btrfs)
 			enable_extension "fs-btrfs-support"
+			[[ -n "$BTRFS_CHECKSUM" && ! "$BTRFS_CHECKSUM" =~ ^(crc32c|xxhash|sha256|blake2)$ ]] && exit_with_error "Unknown btrfs checksum algorithm" "$BTRFS_CHECKSUM"
 			[[ -z $BTRFS_COMPRESSION ]] && BTRFS_COMPRESSION=zlib # default btrfs filesystem compression method is zlib
 			[[ ! $BTRFS_COMPRESSION =~ zlib|lzo|zstd|none ]] && exit_with_error "Unknown btrfs compression method" "$BTRFS_COMPRESSION"
 			;;
@@ -393,8 +397,9 @@ function do_extra_configuration() {
 	fi
 
 	DEBIAN_MIRROR='deb.debian.org/debian'
-	# loong64 is using debian-ports repo now
-	[[ "${ARCH}" == "loong64" ]] && DEBIAN_MIRROR='deb.debian.org/debian-ports'
+	# loong64 was promoted from debian-ports into the main Debian archive (it is
+	# listed in sid's Architectures: and dropped from debian-ports), so it now uses
+	# the default deb.debian.org/debian mirror like every other architecture.
 	DEBIAN_SECURITY='security.debian.org/'
 	[[ "${ARCH}" == "amd64" ]] &&
 		UBUNTU_MIRROR='archive.ubuntu.com/ubuntu/' ||

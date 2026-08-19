@@ -62,7 +62,7 @@ diff --git a/sound/soc/meson/aiu-codec-ctrl.c b/sound/soc/meson/aiu-codec-ctrl.c
 index 111111111111..222222222222 100644
 --- a/sound/soc/meson/aiu-codec-ctrl.c
 +++ b/sound/soc/meson/aiu-codec-ctrl.c
-@@ -12,59 +12,111 @@
+@@ -12,62 +12,114 @@
  #include "aiu.h"
  #include "meson-codec-glue.h"
  
@@ -134,6 +134,9 @@ index 111111111111..222222222222 100644
  	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 -	unsigned int mux, changed;
 +	unsigned int mux, ctrl, more;
+ 
+ 	if (ucontrol->value.enumerated.item[0] >= e->items)
+ 		return -EINVAL;
  
  	mux = snd_soc_enum_item_to_val(e, ucontrol->value.enumerated.item[0]);
 -	changed = snd_soc_component_test_bits(component, e->reg,

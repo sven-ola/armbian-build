@@ -10,6 +10,11 @@
 function install_distribution_specific() {
 	display_alert "Applying distribution specific tweaks for" "${RELEASE:-}" "info"
 
+	call_extension_method "pre_install_distribution_specific" "config_pre_install_distribution_specific" <<- 'PRE_INSTALL_DISTRIBUTION_SPECIFIC'
+		*give config a chance to act before install_distribution_specific*
+		Called after `create_rootfs_cache` (_prepare basic rootfs: unpack cache or create from scratch_) but before `install_distribution_specific` (_install distribution and board specific applications_).
+	PRE_INSTALL_DISTRIBUTION_SPECIFIC
+
 	# disable broken service, the problem is in default misconfiguration
 	disable_systemd_service_sdcard smartmontools.service smartd.service
 
@@ -220,12 +225,9 @@ function create_sources_list_and_deploy_repo_key() {
 		sid | unstable)
 			distro="debian"
 
-			if [[ "${ARCH}" == loong64 ]]; then
-				# loong64 is using debian-ports repo, we can change it to default after debian supports it officially
-				keyring_filename=/usr/share/keyrings/debian-ports-archive-keyring.gpg
-			else
-				keyring_filename=/usr/share/keyrings/debian-archive-keyring.gpg
-			fi
+			# loong64 was promoted from debian-ports into the main Debian archive, so
+			# it uses the standard keyring like every other architecture.
+			keyring_filename=/usr/share/keyrings/debian-archive-keyring.gpg
 			# sid is permanent unstable development and has no such thing as updates or security
 			cat <<- EOF > "${basedir}/etc/apt/sources.list.d/${distro}.sources"
 				Types: deb

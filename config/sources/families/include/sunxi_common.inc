@@ -10,7 +10,7 @@ enable_extension "sunxi-tools"
 declare -g ARCH=armhf
 declare -g BOOTDELAY=1
 declare -g BOOTPATCHDIR="${BOOTPATCHDIR:-"v2026.07-sunxi"}"
-declare -g BOOTBRANCH="${BOOTBRANCH:-"tag:v2026.07-rc4"}"
+declare -g BOOTBRANCH="${BOOTBRANCH:-"tag:v2026.07"}"
 UBOOT_TARGET_MAP="${UBOOT_TARGET_MAP:-;;u-boot-sunxi-with-spl.bin}"
 declare -g BOOTSCRIPT="boot-sunxi.cmd:boot.cmd"
 declare -g BOOTENV_FILE='sunxi.txt'
@@ -34,7 +34,7 @@ case $BRANCH in
 		;;
 
 	edge)
-		declare -g KERNEL_MAJOR_MINOR="7.0" # Major and minor versions of this kernel.
+		declare -g KERNEL_MAJOR_MINOR="7.1" # Major and minor versions of this kernel.
 		;;
 esac
 
