@@ -20,6 +20,7 @@ import tempfile
 import git  # GitPython
 from unidecode import unidecode
 from unidiff import PatchSet
+from rich.text import Text
 
 from common.patching_config import PatchingConfig
 from common.term_colors import background_dark_or_light
@@ -35,6 +36,10 @@ index_zero = f"{'0' * 12}"
 index_from_zero = f"index {'0' * 12}..{'1' * 12}"
 index_not_zero = f"index {'1' * 12}..{'2' * 12}"
 index_rewrite_regexp: re.Pattern = re.compile(r"index ([0-9a-f]{12})\.\.([0-9a-f]{12})")
+
+# What follows the description separator in a patch: optional diffstat lines (they start
+# with a space) and blank lines, then a file diff (a git header, or a "--- "/"+++ " pair).
+patch_start_regexp: re.Pattern = re.compile(r"(?:[ ][^\n]*\n|\n)*(?:diff --git |--- \S[^\n]*\n\+\+\+ )")
 
 
 # Callback used for rewriting index lines.
@@ -244,8 +249,14 @@ class PatchFileInDir:
 		separator = "\n---\n"
 		# check if the separator is in the patch, if so, split
 		if separator in full_message_text:
-			# find the _last_ occurrence of the separator, and split two chunks from that position
+			# Split at the last separator that the patch itself follows, so a footer after the
+			# diff (b4 sends "---" / base-commit / change-id) stays out of it; else at the last one.
 			separator_pos = full_message_text.rfind(separator)
+			candidate_pos = separator_pos
+			while candidate_pos != -1 and not patch_start_regexp.match(full_message_text, candidate_pos + len(separator)):
+				candidate_pos = full_message_text.rfind(separator, 0, candidate_pos)
+			if candidate_pos != -1:
+				separator_pos = candidate_pos
 			desc = full_message_text[:separator_pos]
 			patch = full_message_text[separator_pos + len(separator):]
 			return desc, patch
@@ -434,7 +445,8 @@ class PatchInPatchFile:
 		# log.debug(f"Rejects file is going to be '{rejects_file}'...")
 
 		proc = subprocess.run(
-			["patch", "--batch", "-p1", "-N", f"--reject-file={rejects_file}", "--quoting-style=c"],
+			# Unified rejects regardless of the input patch format: rich_rejects() styles lines by their +/-/@@ prefix.
+			["patch", "--batch", "-p1", "-N", "--reject-format=unified", f"--reject-file={rejects_file}", "--quoting-style=c"],
 			cwd=working_dir,
 			input=real_input,
 			stdout=subprocess.PIPE,
@@ -740,6 +752,18 @@ class PatchInPatchFile:
 			for tag in color_tags[color]:
 				ret = ret.replace(tag, f"[{bold} {color}]{tag}[/{bold} {color}]")
 		return ret
+
+	def rich_rejects(self) -> Text:
+		"""Reject hunks as foldable Text, coloured per line like a diff pager."""
+		line_styles = {"+": "green", "-": "red", "@": "cyan"}
+		text = Text()
+		for line in self.rejects.splitlines(keepends=True):
+			text.append(line, style=line_styles.get(line[:1], ""))
+		# Expand on the Text, not the str: rich counts terminal cells, so wide
+		# characters before a tab keep the columns aligned. 4 instead of rich's
+		# default 8 keeps diff indentation readable in a narrow cell.
+		text.expand_tabs(4)
+		return text
 
 	def apply_patch_date_to_files(self, working_dir, options):
 		# The date applied to the patched files is:
